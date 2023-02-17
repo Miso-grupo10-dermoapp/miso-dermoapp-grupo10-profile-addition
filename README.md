@@ -1,2 +1,2 @@
-# miso-dermoapp-grupo10-profile-addition
-repo para lambda de perfil dermatologico 
+# miso-dermoapp-grupo10-doctor-specialties-addition
+repo for lambda specialites from doctor
