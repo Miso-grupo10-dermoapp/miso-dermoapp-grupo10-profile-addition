@@ -5,10 +5,10 @@ import boto3
 from boto3.dynamodb.conditions import Key
 import moto
 import pytest
-
+from request_validation_utils import body_properties
 import app
 
-TABLE_NAME = "Dermoapp-sprint1-doctor-DoctorDetails-HJ34HOQYTKA6"
+TABLE_NAME = "dermoapp-patient"
 
 
 @pytest.fixture
@@ -31,15 +31,13 @@ def data_table(aws_credentials):
     with moto.mock_dynamodb():
         client = boto3.client("dynamodb", region_name="us-east-1")
         client.create_table(
+            KeySchema=[
+                {"AttributeName": "patient_id", "KeyType": "HASH"},
+            ],
             AttributeDefinitions=[
-                {"AttributeName": "doctor_id", "AttributeType": "S"},
-                {"AttributeName": "license_number", "AttributeType": "S"}
+                {"AttributeName": "patient_id", "AttributeType": "S"},
             ],
             TableName=TABLE_NAME,
-            KeySchema=[
-                {"AttributeName": "doctor_id", "KeyType": "HASH"},
-                {"AttributeName": "license_number", "KeyType": "RANGE"}
-            ],
             BillingMode="PAY_PER_REQUEST"
         )
 
@@ -63,15 +61,16 @@ def load_table_license(data_table):
                                   'status': 'pending'})
     print(str(result))
 
-def test_givenValidInputRequestThenReturn200AndValidPersistence(lambda_environment, load_table_speciality):
+def test_givenValidInputRequestThenReturn200AndValidPersistence(lambda_environment, data_table):
     event = {
-        "resource": "/doctor/{doctor_id}/license",
-        "path": "/doctor/123/license",
+        "resource": "/patient/{patient_id}/profile",
+        "path": "/patient/123/profile",
         "httpMethod": "POST",
         "pathParameters": {
-            "doctor_id": "123"
+            "patient_id": "123"
         },
-        "body": "{\n    \"specialty_name\": \"dermatologic-verif\" \n}",
+        "body": "{\n \"photo_type\": \"prof-1\", \"tone_skin\": \"brown\", \"eye_color\": \"blue\",\"hair_coloring\": "
+                "\"honey\", \"tan_effect\": \"test\", \"sun_tolerance\": \"low\" \n}",
         "isBase64Encoded": False
     }
     lambdaResponse = app.handler(event, [])
@@ -79,7 +78,7 @@ def test_givenValidInputRequestThenReturn200AndValidPersistence(lambda_environme
     client = boto3.resource("dynamodb", region_name="us-east-1")
     mockTable = client.Table(TABLE_NAME)
     response = mockTable.query(
-        KeyConditionExpression=Key('doctor_id').eq('123')
+        KeyConditionExpression=Key('patient_id').eq('123')
     )
     items = response['Items']
     if items:
@@ -87,80 +86,17 @@ def test_givenValidInputRequestThenReturn200AndValidPersistence(lambda_environme
 
     assert lambdaResponse['statusCode'] == 200
     assert data is not None
-    assert data['doctor_id'] is not None
-    assert data['specialties'] is not None
-    assert data['license_number'] is not None
-    assert data['doctor_id'] == '123'
-    assert data['license_number'] == "1212"
-    assert len(data['specialties']) == 2
+    for property in body_properties:
+        assert data[property] is not None
 
-def test_givenValidInputRequestWithExistingRegistryWithoutSpecialtiesThenReturn200AndValidPersistence(lambda_environment, load_table_license):
+
+def test_givenMissingBodyOnRequestThenReturnError500(lambda_environment, data_table):
     event = {
-        "resource": "/doctor/{doctor_id}/license",
-        "path": "/doctor/123/license",
+        "resource": "/patient/{patient_id}/profile",
+        "path": "/patient/123/profile",
         "httpMethod": "POST",
         "pathParameters": {
-            "doctor_id": "123"
-        },
-        "body": "{\n    \"specialty_name\": \"dermatologic\" \n}",
-        "isBase64Encoded": False
-    }
-    lambdaResponse = app.handler(event, [])
-
-    client = boto3.resource("dynamodb", region_name="us-east-1")
-    mockTable = client.Table(TABLE_NAME)
-    response = mockTable.query(
-        KeyConditionExpression=Key('doctor_id').eq('123')
-    )
-    items = response['Items']
-    if items:
-        data = items[0]
-
-    assert lambdaResponse['statusCode'] == 200
-    assert data is not None
-    assert data['doctor_id'] is not None
-    assert data['specialties'] is not None
-    assert data['license_number'] is not None
-    assert data['doctor_id'] == '123'
-    assert data['license_number'] == "1212"
-    assert len(data['specialties']) == 1
-
-def test_givenValidInputRequestWithExistingRegistryWithoutSpecialtiesThenReturn200AndValidPersistence(lambda_environment, data_table):
-    event = {
-        "resource": "/doctor/{doctor_id}/license",
-        "path": "/doctor/123/license",
-        "httpMethod": "POST",
-        "pathParameters": {
-            "doctor_id": "123"
-        },
-        "body": "{\n    \"specialty_name\": \"dermatologic-rej\" \n}",
-        "isBase64Encoded": False
-    }
-    lambdaResponse = app.handler(event, [])
-
-    client = boto3.resource("dynamodb", region_name="us-east-1")
-    mockTable = client.Table(TABLE_NAME)
-    response = mockTable.query(
-        KeyConditionExpression=Key('doctor_id').eq('123')
-    )
-    items = response['Items']
-    if items:
-        data = items[0]
-
-    assert lambdaResponse['statusCode'] == 200
-    assert data is not None
-    assert data['specialties'] is not None
-    assert data['doctor_id'] is not None
-    assert data['doctor_id'] == '123'
-    assert len(data['specialties']) == 1
-
-def test_givenMissingSpecialtyOnRequestThenReturnError500(lambda_environment, data_table):
-    event = {
-        "resource": "/doctor/{doctor_id}/license",
-        "path": "/doctor/123/license",
-        "httpMethod": "POST",
-        "pathParameters": {
-            "doctor_id": "123"
+            "patient_id": "123"
         },
         "body": "{}",
         "isBase64Encoded": False
@@ -168,53 +104,38 @@ def test_givenMissingSpecialtyOnRequestThenReturnError500(lambda_environment, da
     lambdaResponse = app.handler(event, [])
 
     assert lambdaResponse['statusCode'] == 500
-    assert lambdaResponse['body'] == '{"message": "cannot proceed with the request error: Input request is malformed ' \
-                                     'or missing parameters, details speciality property cannot be empty"}'
+    assert '{"message": "cannot proceed with the request error: ' in lambdaResponse['body']
 
 
-def test_givenMalformedRequestOnRequestThenReturnError412(lambda_environment, data_table):
+def test_givenMalformedBodyRequestThenReturnError500(lambda_environment, data_table):
     event = {
-        "resource": "/doctor/{doctor_id}/license",
-        "path": "/doctor/license",
+        "resource": "/patient/{patient_id}/profile",
+        "path": "/patient/123/profile",
         "httpMethod": "POST",
         "pathParameters": {
+            "patient_id": "123"
         },
-        "body": "{\n    \"other_field\": \"234353\" \n}",
-        "isBase64Encoded": False
-    }
-    lambdaResponse = app.handler(event, [])
-
-    assert lambdaResponse['statusCode'] == 412
-    assert lambdaResponse['body'] == '{"message": "missing or malformed request body"}'
-
-def test_givenRequestWithoutBodyThenReturnError412(lambda_environment, data_table):
-    event = {
-        "resource": "/doctor/{doctor_id}/license",
-        "path": "/doctor/license",
-        "httpMethod": "POST",
-        "pathParameters": {
-            "doctor_id": "123"
-        },
-        "body": None,
-        "isBase64Encoded": False
-    }
-    lambdaResponse = app.handler(event, [])
-
-    assert lambdaResponse['statusCode'] == 412
-    assert lambdaResponse['body'] == '{"message": "missing or malformed request body"}'
-
-
-def test_givenValidRequestAndDBFailureThenReturn500(lambda_environment):
-    event = {
-        "resource": "/doctor/{doctor_id}/license",
-        "path": "/doctor/license",
-        "httpMethod": "POST",
-        "pathParameters": {
-            "doctor_id": "123"
-        },
-        "body": "{\n    \"license_number\": 234353\n}",
+        "body": "{\n \"other_field\": \"prof-1\", \"tone_skin\": \"brown\", \"eye_color\": \"blue\",\"hair_coloring\": "
+                "\"honey\", \"tan_effect\": \"test\", \"sun_tolerance\": \"low\" \n}",
         "isBase64Encoded": False
     }
     lambdaResponse = app.handler(event, [])
 
     assert lambdaResponse['statusCode'] == 500
+    assert '{"message": "cannot proceed with the request error: Input request is malformed or missing parameters' in lambdaResponse['body']
+
+def test_givenRequestWithoutPatientIDThenReturnError412(lambda_environment, data_table):
+    event = {
+        "resource": "/patient/{patient_id}/profile",
+        "path": "/patient/profile",
+        "httpMethod": "POST",
+        "pathParameters": {
+        },
+        "body": "{\n \"other_field\": \"prof-1\", \"tone_skin\": \"brown\", \"eye_color\": \"blue\",\"hair_coloring\": "
+                "\"honey\", \"tan_effect\": \"test\", \"sun_tolerance\": \"low\" \n}",
+        "isBase64Encoded": False
+    }
+    lambdaResponse = app.handler(event, [])
+
+    assert lambdaResponse['statusCode'] == 412
+    assert lambdaResponse['body'] == '{"message": "missing or malformed request body"}'

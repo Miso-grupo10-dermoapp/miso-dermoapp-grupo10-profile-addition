@@ -1,13 +1,14 @@
 import json
 
-specialty_property_name = "specialty_name"
+body_properties = ["photo_type", "tone_skin", "eye_color", "hair_coloring", "tan_effect", "sun_tolerance"]
 
 
-def validate_body_specialty(body):
+def validate_body_params(body):
     try:
         specialties_body = json.loads(body)
-        if not validate_property_exist(specialty_property_name, specialties_body):
-            raise RuntimeError("speciality property cannot be empty")
+        for property in body_properties:
+            if not validate_property_exist(property, specialties_body):
+                raise RuntimeError("the property {0} is missing or without value".format(property))
     except Exception as err:
         raise RuntimeError("Input request is malformed or missing parameters, details " + str(err))
     return True
